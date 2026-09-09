@@ -402,6 +402,22 @@
     </div>
     <button class="btn-primary" id="auth-btn">Sign in</button>
     <div class="login-error" id="auth-status"></div>
+    <div style="text-align:center; margin-top:16px; font-size:12.5px; color:var(--text-tertiary);">
+      <span id="toggle-mode-text">Need access?</span>
+      <a href="#" id="toggle-mode-link" style="color:var(--accent); text-decoration:none; margin-left:4px;">Request it</a>
+    </div>
+    <div id="request-access-box" style="display:none; margin-top:18px; padding-top:18px; border-top:1px solid var(--border);">
+      <div class="field">
+        <label for="req-name">Your name</label>
+        <input id="req-name" type="text" />
+      </div>
+      <div class="field">
+        <label for="req-email">Email</label>
+        <input id="req-email" type="email" />
+      </div>
+      <button class="btn-primary" id="request-btn">Request access</button>
+      <div class="login-error" id="request-status"></div>
+    </div>
   </div>
 </div>
 
@@ -653,7 +669,26 @@
       });
     }
 
-    document.getElementById('auth-btn').addEventListener('click', async () => {
+    const authBtn = document.getElementById('auth-btn');
+    const toggleLink = document.getElementById('toggle-mode-link');
+    const requestBox = document.getElementById('request-access-box');
+    const signinFields = [
+      document.querySelector('label[for="auth-email"]').parentElement,
+      document.querySelector('label[for="auth-pass"]').parentElement,
+      authBtn,
+    ];
+
+    toggleLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      const showingRequest = requestBox.style.display === 'block';
+      requestBox.style.display = showingRequest ? 'none' : 'block';
+      signinFields.forEach((el) => { el.style.display = showingRequest ? '' : 'none'; });
+      toggleLink.textContent = showingRequest ? 'Request it' : 'Back to sign in';
+      document.getElementById('auth-status').textContent = '';
+      document.getElementById('request-status').textContent = '';
+    });
+
+    authBtn.addEventListener('click', async () => {
       const email = document.getElementById('auth-email').value;
       const pass = document.getElementById('auth-pass').value;
       const statusEl = document.getElementById('auth-status');
@@ -661,7 +696,30 @@
         await signInWithEmailAndPassword(auth, email, pass);
         statusEl.textContent = '';
       } catch (err) {
-        statusEl.textContent = 'Sign-in failed: ' + err.message;
+        statusEl.textContent = err.message;
+      }
+    });
+
+    document.getElementById('request-btn').addEventListener('click', async () => {
+      const name = document.getElementById('req-name').value.trim();
+      const email = document.getElementById('req-email').value.trim();
+      const statusEl = document.getElementById('request-status');
+      if (!name || !email) {
+        statusEl.textContent = 'Enter your name and email.';
+        statusEl.style.color = 'var(--danger)';
+        return;
+      }
+      try {
+        await addDoc(collection(db, 'access_requests'), {
+          name, email, requestedAt: new Date().toISOString(),
+        });
+        statusEl.style.color = 'var(--success)';
+        statusEl.textContent = 'Request sent — you\'ll be notified once approved.';
+        document.getElementById('req-name').value = '';
+        document.getElementById('req-email').value = '';
+      } catch (err) {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = 'Could not send request: ' + err.message;
       }
     });
 
