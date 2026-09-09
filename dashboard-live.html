@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trend Watchlist — NSE</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg: #0E1210;
+    --surface: #161C19;
+    --surface-2: #1D2420;
+    --line: #2A332D;
+    --text: #EDEFEA;
+    --text-dim: #8FA096;
+    --amber: #F2A93B;
+    --amber-dim: #4A3A1C;
+    --green: #5CB584;
+    --red: #D6634E;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'Space Grotesk', sans-serif;
+  }
+
+  *{ box-sizing: border-box; }
+
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    padding: 32px 20px 60px;
+  }
+
+  .wrap{ max-width: 920px; margin: 0 auto; }
+
+  header{
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 24px;
+    margin-bottom: 28px;
+  }
+
+  h1{
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+
+  .sub{
+    color: var(--text-dim);
+    font-size: 14px;
+    max-width: 58ch;
+    line-height: 1.5;
+  }
+
+  .stats{
+    display: flex;
+    gap: 28px;
+    margin-top: 22px;
+    flex-wrap: wrap;
+  }
+
+  .stat .num{
+    font-family: var(--mono);
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .stat .num.amber{ color: var(--amber); }
+
+  .stat .label{
+    color: var(--text-dim);
+    font-size: 12.5px;
+    margin-top: 6px;
+  }
+
+  .legend{
+    display:flex;
+    gap:18px;
+    margin-top: 20px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+  }
+  .legend span{ display:flex; align-items:center; gap:7px; }
+  .dot{ width:9px; height:9px; border-radius:2px; display:inline-block; }
+  .dot.ready{ background: var(--amber); }
+  .dot.watch{ background: var(--surface-2); border:1px solid var(--line); }
+  .dot.flag{ background: var(--red); }
+
+  .capital-bar{
+    display:flex;
+    gap: 22px;
+    margin-top: 22px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    flex-wrap: wrap;
+  }
+  .cap-item{ display:flex; flex-direction:column; gap:4px; }
+  .cap-label{ font-size: 11.5px; color: var(--text-dim); }
+  .cap-val{ font-family: var(--mono); font-size: 15px; font-weight: 500; }
+
+  .table-wrap{ overflow-x: auto; }
+  table{ min-width: 620px; }
+
+  .not-affordable{ color: var(--text-dim); font-style: italic; }
+
+  .positions-section{ margin-top: 44px; }
+  .positions-section h2{
+    font-size: 18px; font-weight: 600; margin-bottom: 14px;
+  }
+
+  #auth-box, #add-position-box{
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 18px;
+  }
+  input{
+    background: var(--surface); border: 1px solid var(--line); color: var(--text);
+    padding: 8px 10px; border-radius: 4px; font-family: var(--sans); font-size: 13px;
+  }
+  button{
+    background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber);
+    padding: 8px 14px; border-radius: 4px; font-family: var(--sans); font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover{ opacity: 0.85; }
+  button.danger{ background: rgba(214,99,78,0.15); color: var(--red); border-color: var(--red); }
+
+  .badge.in{ background: var(--amber-dim); color: var(--amber); }
+  .badge.out{ background: rgba(214,99,78,0.15); color: var(--red); }
+  .badge.target{ background: rgba(92,181,132,0.15); color: var(--green); }
+  .pnl-pos{ color: var(--green); }
+  .pnl-neg{ color: var(--red); }
+
+  table{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  thead th{
+    text-align: left;
+    font-weight: 500;
+    color: var(--text-dim);
+    font-size: 12px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  thead th.num{ text-align: right; }
+
+  tbody td{
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+
+  tbody tr.ready{
+    background: linear-gradient(90deg, rgba(242,169,59,0.10), transparent 70%);
+    border-left: 2px solid var(--amber);
+  }
+  tbody tr.ready td:first-child{ padding-left: 10px; }
+  tbody tr:not(.ready) td:first-child{ padding-left: 12px; border-left: 2px solid transparent; }
+
+  .name{ font-weight: 500; }
+  .num-cell{ font-family: var(--mono); text-align: right; }
+  .ext-pos{ color: var(--green); }
+
+  .badge{
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    display: inline-block;
+    white-space: nowrap;
+  }
+  .badge.ready{ background: var(--amber-dim); color: var(--amber); }
+  .badge.watch{ background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--line); }
+  .badge.flag{ background: rgba(214,99,78,0.15); color: var(--red); }
+
+  footer{
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 12.5px;
+    line-height: 1.6;
+    max-width: 62ch;
+  }
+
+  @media (max-width: 600px){
+    .stats{ gap: 20px; }
+    table{ font-size: 12.5px; }
+    thead th, tbody td{ padding: 9px 6px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Trend Watchlist — NSE</h1>
+    <div class="sub">Stocks currently trading above both their 50-day and 200-day moving averages, pulled from Screener.in. Rows marked <strong style="color:var(--amber)">Ready to add</strong> are extended more than 3% above their 50-day average — the closest proxy this snapshot allows for active breakout strength.</div>
+    <div class="sub" id="updated-at" style="margin-top:8px; font-family:var(--mono); font-size:12px;">Loading latest scan…</div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="legend">
+      <span><i class="dot ready"></i> Ready to add — meets trend + momentum threshold</span>
+      <span><i class="dot watch"></i> Watch — trend intact, not yet extended</span>
+      <span><i class="dot flag"></i> Verify — data looks affected by a split or corporate action</span>
+    </div>
+
+    <div class="capital-bar">
+      <div class="cap-item">
+        <span class="cap-label">Capital</span>
+        <span class="cap-val">₹10,000</span>
+      </div>
+      <div class="cap-item">
+        <span class="cap-label">Risk per trade</span>
+        <span class="cap-val">1% (₹100)</span>
+      </div>
+      <div class="cap-item">
+        <span class="cap-label">Stop-loss</span>
+        <span class="cap-val">−8% from entry</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Company</th>
+        <th class="num">CMP ₹</th>
+        <th class="num">Ext. vs 50D</th>
+        <th class="num">Stop ₹</th>
+        <th class="num">Qty</th>
+        <th class="num">Invested ₹</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  </div>
+
+  <section class="positions-section">
+    <h2>Your Positions</h2>
+    <div id="auth-box">
+      <input id="auth-email" type="email" placeholder="email" />
+      <input id="auth-pass" type="password" placeholder="password" />
+      <button id="auth-btn">Sign in</button>
+      <span id="auth-status" class="sub"></span>
+    </div>
+
+    <div id="add-position-box" style="display:none;">
+      <input id="pos-symbol" type="text" placeholder="NSE symbol e.g. KOTAKBANK" />
+      <input id="pos-entry" type="number" placeholder="Entry price ₹" />
+      <input id="pos-qty" type="number" placeholder="Qty" />
+      <button id="add-position-btn">Mark as bought (IN)</button>
+    </div>
+
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Company</th>
+          <th class="num">Entry ₹</th>
+          <th class="num">Current ₹</th>
+          <th class="num">P&L %</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="position-rows"><tr><td colspan="6" class="sub">Sign in to view/manage positions.</td></tr></tbody>
+    </table>
+    </div>
+  </section>
+
+  <footer>
+    Snapshot taken from Screener.in's "Above 50 &amp; 200 EMA" screen. This is end-of-day data, not live — refresh by re-running the scan before market open. "Ready to add" is a momentum proxy (price extension above the 50-day average), not a confirmed breakout signal — true confirmation needs today's volume vs. its 20-day average, which this data source doesn't carry.<br><br>
+    Qty is sized to risk 1% of ₹10,000 (₹100) per trade against an 8% stop-loss, capped by what ₹10,000 can actually buy. At this capital size, only a handful of stocks are affordable for even 1 share — most of this list needs either a larger account or a screener filtered to lower-priced stocks to be tradeable at all. Not investment advice; verify data and validate any rule against historical performance before trading it.
+  </footer>
+
+</div>
+
+<script>
+  // ---- Firebase setup: replace with your project's config ----
+  import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js").then(async ({ initializeApp }) => {
+    const { getFirestore, doc, getDoc, collection, query, where, onSnapshot, addDoc, updateDoc, orderBy } =
+      await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { getAuth, signInWithEmailAndPassword, onAuthStateChanged } =
+      await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    function fmt(n){
+      return Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    const rowsEl = document.getElementById('rows');
+    const statsEl = document.getElementById('stats');
+    const updatedEl = document.getElementById('updated-at');
+
+    try {
+      const snap = await getDoc(doc(db, "watchlist", "latest"));
+      if (!snap.exists()) {
+        rowsEl.innerHTML = `<tr><td colspan="7">No scan data yet — run the Cloud Function once to populate Firestore.</td></tr>`;
+        return;
+      }
+
+      const { rows, updatedAt } = snap.data();
+      if (updatedEl) updatedEl.textContent = `Last updated: ${new Date(updatedAt).toLocaleString('en-IN')}`;
+
+      let readyCount = 0, affordableCount = 0;
+
+      rows.forEach(s => {
+        let rowClass = '', badgeClass = 'badge watch', badgeText = 'Watch';
+        if (s.status === 'flag') { badgeClass = 'badge flag'; badgeText = 'Verify'; }
+        else if (s.status === 'ready') { rowClass = 'ready'; badgeClass = 'badge ready'; badgeText = 'Ready to add'; readyCount++; }
+        if (s.affordable && s.status !== 'flag') affordableCount++;
+
+        const tr = document.createElement('tr');
+        if (rowClass) tr.className = rowClass;
+        tr.innerHTML = `
+          <td class="name">${s.name}</td>
+          <td class="num-cell">${fmt(s.cmp)}</td>
+          <td class="num-cell ${s.status==='ready' ? 'ext-pos':''}">${s.status==='flag' ? '—' : (s.ext>=0?'+':'') + s.ext.toFixed(2) + '%'}</td>
+          <td class="num-cell">${s.status==='flag' ? '—' : fmt(s.stopPrice)}</td>
+          <td class="num-cell">${s.status==='flag' ? '—' : (s.affordable ? s.qty : '—')}</td>
+          <td class="num-cell">${s.status==='flag' ? '—' : (s.affordable ? fmt(s.invested) : '<span class="not-affordable">too costly</span>')}</td>
+          <td><span class="${badgeClass}">${badgeText}</span></td>
+        `;
+        rowsEl.appendChild(tr);
+      });
+
+      statsEl.innerHTML = `
+        <div class="stat"><div class="num">${rows.length}</div><div class="label">Passed trend filter</div></div>
+        <div class="stat"><div class="num amber">${readyCount}</div><div class="label">Ready to add today</div></div>
+        <div class="stat"><div class="num">${affordableCount}</div><div class="label">Affordable at ₹10,000</div></div>
+      `;
+    } catch (err) {
+      rowsEl.innerHTML = `<tr><td colspan="7">Couldn't load data: ${err.message}</td></tr>`;
+    }
+
+    // ---- Positions: sign-in + IN/OUT tracking ----
+    const authBtn = document.getElementById('auth-btn');
+    const authStatus = document.getElementById('auth-status');
+    const addBox = document.getElementById('add-position-box');
+    const posRows = document.getElementById('position-rows');
+
+    authBtn.addEventListener('click', async () => {
+      const email = document.getElementById('auth-email').value;
+      const pass = document.getElementById('auth-pass').value;
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+      } catch (err) {
+        authStatus.textContent = 'Sign-in failed: ' + err.message;
+      }
+    });
+
+    function pnlClass(v){ return v >= 0 ? 'pnl-pos' : 'pnl-neg'; }
+
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        addBox.style.display = 'none';
+        posRows.innerHTML = '<tr><td colspan="6" class="sub">Sign in to view/manage positions.</td></tr>';
+        return;
+      }
+      authStatus.textContent = 'Signed in as ' + user.email;
+      document.getElementById('auth-box').style.display = 'none';
+      addBox.style.display = 'flex';
+
+      const q = query(collection(db, 'positions'), where('status', '==', 'open'), orderBy('entryDate', 'desc'));
+      onSnapshot(q, (snap) => {
+        if (snap.empty) {
+          posRows.innerHTML = '<tr><td colspan="6" class="sub">No open positions yet.</td></tr>';
+          return;
+        }
+        posRows.innerHTML = '';
+        snap.forEach((docSnap) => {
+          const p = docSnap.data();
+          const pnl = p.pnlPct ?? 0;
+          const action = p.action ?? 'HOLD';
+          let badgeClass = 'badge in', badgeText = 'IN — hold';
+          if (action === 'EXIT NOW') { badgeClass = 'badge out'; badgeText = 'OUT — exit now'; }
+          else if (action === 'TARGET HIT') { badgeClass = 'badge target'; badgeText = 'TARGET HIT — book profit'; }
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="name">${p.symbol}</td>
+            <td class="num-cell">${fmt(p.entryPrice)}</td>
+            <td class="num-cell">${p.currentPrice ? fmt(p.currentPrice) : '—'}</td>
+            <td class="num-cell ${pnlClass(pnl)}">${pnl >= 0 ? '+' : ''}${pnl}%</td>
+            <td><span class="${badgeClass}">${badgeText}</span></td>
+            <td><button data-id="${docSnap.id}" class="close-btn danger">Mark sold</button></td>
+          `;
+          posRows.appendChild(tr);
+        });
+
+        posRows.querySelectorAll('.close-btn').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            await updateDoc(doc(db, 'positions', btn.dataset.id), {
+              status: 'closed',
+              closedDate: new Date().toISOString(),
+            });
+          });
+        });
+      });
+    });
+
+    document.getElementById('add-position-btn').addEventListener('click', async () => {
+      const symbol = document.getElementById('pos-symbol').value.trim().toUpperCase();
+      const entryPrice = parseFloat(document.getElementById('pos-entry').value);
+      const qty = parseInt(document.getElementById('pos-qty').value, 10);
+      if (!symbol || !entryPrice || !qty) return;
+
+      await addDoc(collection(db, 'positions'), {
+        symbol,
+        entryPrice,
+        qty,
+        stopPrice: Number((entryPrice * 0.92).toFixed(2)),   // -8% stop
+        targetPrice: Number((entryPrice * 1.20).toFixed(2)), // +20% target
+        entryDate: new Date().toISOString(),
+        status: 'open',
+      });
+
+      document.getElementById('pos-symbol').value = '';
+      document.getElementById('pos-entry').value = '';
+      document.getElementById('pos-qty').value = '';
+    });
+  });
+</script>
+
+</body>
+</html>
