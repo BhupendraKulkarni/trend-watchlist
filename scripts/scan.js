@@ -1,7 +1,6 @@
 const admin = require("firebase-admin");
 const cheerio = require("cheerio");
 
-// Service account JSON comes from a GitHub Secret (see workflow file) — never hardcode it here.
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -21,7 +20,11 @@ const SCREEN_URL = "https://www.screener.in/screens/1366013/above-50-200-ema/?li
 
 async function scrapeScreener() {
   const res = await fetch(SCREEN_URL, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; TrendWatchlistBot/1.0)" },
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
   });
   if (!res.ok) throw new Error(`Screener fetch failed: ${res.status}`);
   const html = await res.text();
@@ -35,10 +38,32 @@ async function scrapeScreener() {
       return false;
     }
   });
-  if (!$table) throw new Error("Could not locate the results table on Screener.in — page structure may have changed.");
+
+  if (!$table) {
+    $("table").each((_, table) => {
+      const firstRowText = $(table).find("tr").first().text();
+      if (/CMP/i.test(firstRowText)) {
+        $table = $(table);
+        return false;
+      }
+    });
+  }
+
+  if (!$table) {
+    const tableCount = $("table").length;
+    const bodyLen = html.length;
+    const looksBlocked = /captcha|cloudflare|access denied|enable javascript/i.test(html);
+    const titleText = $("title").text();
+    throw new Error(
+      `Could not locate the results table. Diagnostics — tables found: ${tableCount}, ` +
+      `HTML length: ${bodyLen}, page title: "${titleText}", possible block page: ${looksBlocked}`
+    );
+  }
 
   const headers = [];
-  $table.find("thead th").each((_, th) => headers.push($(th).text().trim().toLowerCase()));
+  let $headerCells = $table.find("thead th");
+  if (!$headerCells.length) $headerCells = $table.find("tr").first().find("th, td");
+  $headerCells.each((_, th) => headers.push($(th).text().trim().toLowerCase()));
 
   const companyIdx = headers.findIndex((h) => h.includes("company"));
   const cmpIdx = headers.findIndex((h) => h.includes("cmp"));
@@ -50,7 +75,9 @@ async function scrapeScreener() {
   }
 
   const rows = [];
-  $table.find("tbody tr").each((_, tr) => {
+  let $bodyRows = $table.find("tbody tr");
+  if (!$bodyRows.length) $bodyRows = $table.find("tr").slice(1);
+  $bodyRows.each((_, tr) => {
     const cells = $(tr).find("td");
     if (!cells.length) return;
 
