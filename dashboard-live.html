@@ -446,14 +446,17 @@
       document.getElementById('auth-box').style.display = 'none';
       addBox.style.display = 'flex';
 
-      const q = query(collection(db, 'positions'), where('status', '==', 'open'), orderBy('entryDate', 'desc'));
+      const q = query(collection(db, 'positions'), where('status', '==', 'open'));
       onSnapshot(q, (snap) => {
         if (snap.empty) {
           posRows.innerHTML = '<tr><td colspan="6" class="sub">No open positions yet.</td></tr>';
           return;
         }
         posRows.innerHTML = '';
-        snap.forEach((docSnap) => {
+        const sortedDocs = [...snap.docs].sort((a, b) =>
+          new Date(b.data().entryDate) - new Date(a.data().entryDate)
+        );
+        sortedDocs.forEach((docSnap) => {
           const p = docSnap.data();
           const pnl = p.pnlPct ?? 0;
           const action = p.action ?? 'HOLD';
