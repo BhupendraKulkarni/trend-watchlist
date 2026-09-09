@@ -1,0 +1,28 @@
+name: Daily Stock Scan
+
+on:
+  schedule:
+    - cron: '15 3 * * 1-5'   # 8:45 AM IST, Mon–Fri (cron runs in UTC)
+  workflow_dispatch: {}       # adds a manual "Run workflow" button in the Actions tab
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: ./scripts
+
+      - name: Run scan
+        run: node scan.js
+        working-directory: ./scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
