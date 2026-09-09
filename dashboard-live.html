@@ -309,3 +309,202 @@
     </table>
     </div>
   </section>
+
+  <footer>
+    Snapshot taken from Screener.in's "Above 50 &amp; 200 EMA" screen. This is end-of-day data, not live — refresh by re-running the scan before market open. "Ready to add" is a momentum proxy (price extension above the 50-day average), not a confirmed breakout signal — true confirmation needs today's volume vs. its 20-day average, which this data source doesn't carry.<br><br>
+    Qty is sized to risk 1% of ₹10,000 (₹100) per trade against an 8% stop-loss, capped by what ₹10,000 can actually buy. At this capital size, only a handful of stocks are affordable for even 1 share — most of this list needs either a larger account or a screener filtered to lower-priced stocks to be tradeable at all. Not investment advice; verify data and validate any rule against historical performance before trading it.
+  </footer>
+
+</div>
+
+<script>
+  import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js").then(async ({ initializeApp }) => {
+    const { getFirestore, doc, getDoc, collection, query, where, onSnapshot, addDoc, updateDoc, orderBy } =
+      await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { getAuth, signInWithEmailAndPassword, onAuthStateChanged } =
+      await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCmYVwUWbRw65bmRNaxa9oMXpmPE2BJxAU",
+      authDomain: "trend-watchlist.firebaseapp.com",
+      projectId: "trend-watchlist",
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    function fmt(n){
+      return Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    const rowsEl = document.getElementById('rows');
+    const statsEl = document.getElementById('stats');
+    const updatedEl = document.getElementById('updated-at');
+
+    let allRows = [];
+    let currentFilter = 'all';
+
+    function statusMeta(status) {
+      if (status === 'flag') return { badgeClass: 'badge flag', badgeText: 'Verify', rowClass: '' };
+      if (status === 'ready') return { badgeClass: 'badge ready', badgeText: 'Ready to add', rowClass: 'ready' };
+      if (status === 'not-trending') return { badgeClass: 'badge watch', badgeText: 'Not trending', rowClass: '' };
+      return { badgeClass: 'badge watch', badgeText: 'Watch', rowClass: '' };
+    }
+
+    function renderRows() {
+      rowsEl.innerHTML = '';
+      const filtered = currentFilter === 'all' ? allRows : allRows.filter((s) => s.status === currentFilter);
+
+      if (!filtered.length) {
+        rowsEl.innerHTML = `<tr><td colspan="7" class="sub">No stocks match this filter today.</td></tr>`;
+        return;
+      }
+
+      filtered.forEach(s => {
+        const { badgeClass, badgeText, rowClass } = statusMeta(s.status);
+        const tr = document.createElement('tr');
+        if (rowClass) tr.className = rowClass;
+        tr.innerHTML = `
+          <td class="name">${s.name}</td>
+          <td class="num-cell">${fmt(s.cmp)}</td>
+          <td class="num-cell ${s.status==='ready' ? 'ext-pos':''}">${s.status==='flag' ? '—' : (s.ext>=0?'+':'') + s.ext.toFixed(2) + '%'}</td>
+          <td class="num-cell">${s.status==='flag' ? '—' : fmt(s.stopPrice)}</td>
+          <td class="num-cell">${s.status==='flag' ? '—' : (s.affordable ? s.qty : '—')}</td>
+          <td class="num-cell">${s.status==='flag' ? '—' : (s.affordable ? fmt(s.invested) : '<span class="not-affordable">too costly</span>')}</td>
+          <td><span class="${badgeClass}">${badgeText}</span></td>
+        `;
+        rowsEl.appendChild(tr);
+      });
+    }
+
+    document.querySelectorAll('.filter-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.dataset.filter;
+        renderRows();
+      });
+    });
+
+    try {
+      const snap = await getDoc(doc(db, "watchlist", "latest"));
+      if (!snap.exists()) {
+        rowsEl.innerHTML = `<tr><td colspan="7">No scan data yet — run the scan once to populate Firestore.</td></tr>`;
+        return;
+      }
+
+      const { rows, updatedAt } = snap.data();
+      if (updatedEl) updatedEl.textContent = `Last updated: ${new Date(updatedAt).toLocaleString('en-IN')}`;
+
+      allRows = rows;
+      renderRows();
+
+      const datalist = document.getElementById('symbol-list');
+      if (datalist) {
+        datalist.innerHTML = rows
+          .map((r) => `<option value="${r.name}"></option>`)
+          .join('');
+      }
+
+      const readyCount = rows.filter(r => r.status === 'ready').length;
+      const affordableCount = rows.filter(r => r.affordable && r.status !== 'flag').length;
+
+      statsEl.innerHTML = `
+        <div class="stat"><div class="num">${rows.length}</div><div class="label">Passed trend filter</div></div>
+        <div class="stat"><div class="num amber">${readyCount}</div><div class="label">Ready to add today</div></div>
+        <div class="stat"><div class="num">${affordableCount}</div><div class="label">Affordable at ₹10,000</div></div>
+      `;
+    } catch (err) {
+      rowsEl.innerHTML = `<tr><td colspan="7">Couldn't load data: ${err.message}</td></tr>`;
+    }
+
+    const authBtn = document.getElementById('auth-btn');
+    const authStatus = document.getElementById('auth-status');
+    const addBox = document.getElementById('add-position-box');
+    const posRows = document.getElementById('position-rows');
+
+    authBtn.addEventListener('click', async () => {
+      const email = document.getElementById('auth-email').value;
+      const pass = document.getElementById('auth-pass').value;
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+      } catch (err) {
+        authStatus.textContent = 'Sign-in failed: ' + err.message;
+      }
+    });
+
+    function pnlClass(v){ return v >= 0 ? 'pnl-pos' : 'pnl-neg'; }
+
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        addBox.style.display = 'none';
+        posRows.innerHTML = '<tr><td colspan="6" class="sub">Sign in to view/manage positions.</td></tr>';
+        return;
+      }
+      authStatus.textContent = 'Signed in as ' + user.email;
+      document.getElementById('auth-box').style.display = 'none';
+      addBox.style.display = 'flex';
+
+      const q = query(collection(db, 'positions'), where('status', '==', 'open'), orderBy('entryDate', 'desc'));
+      onSnapshot(q, (snap) => {
+        if (snap.empty) {
+          posRows.innerHTML = '<tr><td colspan="6" class="sub">No open positions yet.</td></tr>';
+          return;
+        }
+        posRows.innerHTML = '';
+        snap.forEach((docSnap) => {
+          const p = docSnap.data();
+          const pnl = p.pnlPct ?? 0;
+          const action = p.action ?? 'HOLD';
+          let badgeClass = 'badge in', badgeText = 'IN — hold';
+          if (action === 'EXIT NOW') { badgeClass = 'badge out'; badgeText = 'OUT — exit now'; }
+          else if (action === 'TARGET HIT') { badgeClass = 'badge target'; badgeText = 'TARGET HIT — book profit'; }
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="name">${p.symbol}</td>
+            <td class="num-cell">${fmt(p.entryPrice)}</td>
+            <td class="num-cell">${p.currentPrice ? fmt(p.currentPrice) : '—'}</td>
+            <td class="num-cell ${pnlClass(pnl)}">${pnl >= 0 ? '+' : ''}${pnl}%</td>
+            <td><span class="${badgeClass}">${badgeText}</span></td>
+            <td><button data-id="${docSnap.id}" class="close-btn danger">Mark sold</button></td>
+          `;
+          posRows.appendChild(tr);
+        });
+
+        posRows.querySelectorAll('.close-btn').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            await updateDoc(doc(db, 'positions', btn.dataset.id), {
+              status: 'closed',
+              closedDate: new Date().toISOString(),
+            });
+          });
+        });
+      });
+    });
+
+    document.getElementById('add-position-btn').addEventListener('click', async () => {
+      const symbol = document.getElementById('pos-symbol').value.trim().toUpperCase();
+      const entryPrice = parseFloat(document.getElementById('pos-entry').value);
+      const qty = parseInt(document.getElementById('pos-qty').value, 10);
+      if (!symbol || !entryPrice || !qty) return;
+
+      await addDoc(collection(db, 'positions'), {
+        symbol,
+        entryPrice,
+        qty,
+        stopPrice: Number((entryPrice * 0.92).toFixed(2)),
+        targetPrice: Number((entryPrice * 1.20).toFixed(2)),
+        entryDate: new Date().toISOString(),
+        status: 'open',
+      });
+
+      document.getElementById('pos-symbol').value = '';
+      document.getElementById('pos-entry').value = '';
+      document.getElementById('pos-qty').value = '';
+    });
+  });
+</script>
+
+</body>
+</html>
