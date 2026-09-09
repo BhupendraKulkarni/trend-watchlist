@@ -15,24 +15,63 @@ const DEFAULTS = {
   readyThreshold: 3,
 };
 
-const SYMBOLS = [
-  "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN", "BHARTIARTL", "ITC",
-  "KOTAKBANK", "LT", "AXISBANK", "HINDUNILVR", "BAJFINANCE", "ASIANPAINT", "MARUTI",
-  "SUNPHARMA", "TITAN", "ULTRACEMCO", "WIPRO", "NESTLEIND", "ADANIENT", "ADANIPORTS",
-  "ONGC", "NTPC", "POWERGRID", "M&M", "TATASTEEL", "TATAMOTORS", "HCLTECH", "TECHM",
-  "BAJAJFINSV", "INDUSINDBK", "JSWSTEEL", "GRASIM", "CIPLA", "DRREDDY", "EICHERMOT",
-  "BRITANNIA", "DIVISLAB", "HDFCLIFE", "SBILIFE", "BPCL", "COALINDIA", "HEROMOTOCO",
-  "APOLLOHOSP", "BAJAJ-AUTO", "TATACONSUM", "UPL", "HINDALCO", "LTIM"
+const BROWSER_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  "Accept": "text/csv,application/json,*/*",
+};
+
+const INDEX_SOURCES = [
+  "https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv",
+  "https://nsearchives.nseindia.com/content/indices/ind_niftynext50list.csv",
 ];
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseCsvLine(line) {
+  const result = [];
+  let current = "";
+  let inQuotes = false;
+  for (const char of line) {
+    if (char === '"') inQuotes = !inQuotes;
+    else if (char === "," && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else current += char;
+  }
+  result.push(current.trim());
+  return result;
+}
+
+async function fetchIndexSymbols(csvUrl) {
+  const res = await fetch(csvUrl, { headers: BROWSER_HEADERS });
+  if (!res.ok) throw new Error(`Failed to fetch ${csvUrl}: ${res.status}`);
+  const text = await res.text();
+  const lines = text.trim().split("\n").filter(Boolean);
+  const header = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+  const symbolIdx = header.findIndex((h) => h.includes("symbol"));
+  if (symbolIdx === -1) throw new Error(`No "Symbol" column found in ${csvUrl}`);
+
+  const symbols = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCsvLine(lines[i]);
+    if (cols[symbolIdx]) symbols.push(cols[symbolIdx]);
+  }
+  return symbols;
+}
+
+async function getUniverse() {
+  const lists = await Promise.all(INDEX_SOURCES.map(fetchIndexSymbols));
+  const merged = [...new Set(lists.flat())];
+  console.log(`Universe loaded: ${merged.length} symbols from ${INDEX_SOURCES.length} index lists.`);
+  return merged;
+}
 
 const YAHOO_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
   "Accept": "application/json",
 };
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function fetchYahooData(symbolWithSuffix) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbolWithSuffix}?range=1y&interval=1d`;
@@ -55,9 +94,9 @@ async function fetchYahooData(symbolWithSuffix) {
   return { cmp, dma50, dma200 };
 }
 
-async function scanUniverse() {
+async function scanUniverse(symbols) {
   const rows = [];
-  for (const symbol of SYMBOLS) {
+  for (const symbol of symbols) {
     try {
       const { cmp, dma50, dma200 } = await fetchYahooData(`${symbol}.NS`);
       rows.push({ name: symbol, cmp, dma50, dma200 });
@@ -127,7 +166,8 @@ async function run() {
   const configSnap = await db.doc("config/settings").get();
   const cfg = configSnap.exists ? { ...DEFAULTS, ...configSnap.data() } : DEFAULTS;
 
-  const raw = await scanUniverse();
+  const universe = await getUniverse();
+  const raw = await scanUniverse(universe);
   const rows = raw.map((s) => computeRow(s, cfg));
 
   await db.doc("watchlist/latest").set({
@@ -138,7 +178,7 @@ async function run() {
 
   const positionUpdates = await checkPositions();
 
-  console.log(`Scan complete. ${rows.length}/${SYMBOLS.length} symbols scanned, ${rows.filter(r => r.status === "ready").length} ready.`);
+  console.log(`Scan complete. ${rows.length}/${universe.length} symbols scanned, ${rows.filter(r => r.status === "ready").length} ready.`);
   console.log(`Positions checked: ${positionUpdates.length}`, positionUpdates);
 }
 
