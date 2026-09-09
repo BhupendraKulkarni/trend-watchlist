@@ -27,14 +27,37 @@ async function scrapeScreener() {
   const html = await res.text();
   const $ = cheerio.load(html);
 
+  let $table = null;
+  $("table").each((_, table) => {
+    const headerText = $(table).find("thead").text();
+    if (/CMP/i.test(headerText)) {
+      $table = $(table);
+      return false;
+    }
+  });
+  if (!$table) throw new Error("Could not locate the results table on Screener.in — page structure may have changed.");
+
+  const headers = [];
+  $table.find("thead th").each((_, th) => headers.push($(th).text().trim().toLowerCase()));
+
+  const companyIdx = headers.findIndex((h) => h.includes("company"));
+  const cmpIdx = headers.findIndex((h) => h.includes("cmp"));
+  const dma200Idx = headers.findIndex((h) => h.includes("200 dma"));
+  const dma50Idx = headers.findIndex((h) => h.includes("50 dma"));
+
+  if ([companyIdx, cmpIdx, dma200Idx, dma50Idx].includes(-1)) {
+    throw new Error(`Expected columns not found in headers: ${JSON.stringify(headers)}`);
+  }
+
   const rows = [];
-  // NOTE: verify against Screener.in's current markup — layout can change.
-  $("table.data-table tbody tr").each((_, el) => {
-    const cells = $(el).find("td");
-    const name = $(cells[1]).text().trim();
-    const cmp = parseFloat($(cells[2]).text().replace(/,/g, ""));
-    const dma200 = parseFloat($(cells[3]).text().replace(/,/g, ""));
-    const dma50 = parseFloat($(cells[4]).text().replace(/,/g, ""));
+  $table.find("tbody tr").each((_, tr) => {
+    const cells = $(tr).find("td");
+    if (!cells.length) return;
+
+    const name = $(cells[companyIdx]).text().trim();
+    const cmp = parseFloat($(cells[cmpIdx]).text().replace(/,/g, ""));
+    const dma200 = parseFloat($(cells[dma200Idx]).text().replace(/,/g, ""));
+    const dma50 = parseFloat($(cells[dma50Idx]).text().replace(/,/g, ""));
 
     if (name && !isNaN(cmp) && !isNaN(dma50) && !isNaN(dma200)) {
       rows.push({ name, cmp, dma50, dma200 });
@@ -76,10 +99,21 @@ async function fetchCurrentPrice(symbol) {
   if (!res.ok) throw new Error(`Price fetch failed for ${symbol}: ${res.status}`);
   const html = await res.text();
   const $ = cheerio.load(html);
-  // NOTE: verify selector against current markup — the price sits in the top ratio box.
-  const priceText = $("span.number").first().text().replace(/,/g, "").trim();
-  const price = parseFloat(priceText);
-  if (isNaN(price)) throw new Error(`Could not parse price for ${symbol}`);
+
+  let price = NaN;
+  $("li").each((_, li) => {
+    const $li = $(li);
+    if (/current price/i.test($li.text())) {
+      const numText = $li.find(".number").first().text().replace(/,/g, "").trim();
+      const parsed = parseFloat(numText);
+      if (!isNaN(parsed)) {
+        price = parsed;
+        return false;
+      }
+    }
+  });
+
+  if (isNaN(price)) throw new Error(`Could not parse Current Price for ${symbol} — page structure may have changed.`);
   return price;
 }
 
