@@ -1,5 +1,4 @@
 const admin = require("firebase-admin");
-const cheerio = require("cheerio");
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
@@ -16,80 +15,57 @@ const DEFAULTS = {
   readyThreshold: 3,
 };
 
-const SCREEN_URL = "https://www.screener.in/screens/1366013/above-50-200-ema/?limit=200";
+const SYMBOLS = [
+  "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN", "BHARTIARTL", "ITC",
+  "KOTAKBANK", "LT", "AXISBANK", "HINDUNILVR", "BAJFINANCE", "ASIANPAINT", "MARUTI",
+  "SUNPHARMA", "TITAN", "ULTRACEMCO", "WIPRO", "NESTLEIND", "ADANIENT", "ADANIPORTS",
+  "ONGC", "NTPC", "POWERGRID", "M&M", "TATASTEEL", "TATAMOTORS", "HCLTECH", "TECHM",
+  "BAJAJFINSV", "INDUSINDBK", "JSWSTEEL", "GRASIM", "CIPLA", "DRREDDY", "EICHERMOT",
+  "BRITANNIA", "DIVISLAB", "HDFCLIFE", "SBILIFE", "BPCL", "COALINDIA", "HEROMOTOCO",
+  "APOLLOHOSP", "BAJAJ-AUTO", "TATACONSUM", "UPL", "HINDALCO", "LTIM"
+];
 
-async function scrapeScreener() {
-  const res = await fetch(SCREEN_URL, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-  });
-  if (!res.ok) throw new Error(`Screener fetch failed: ${res.status}`);
-  const html = await res.text();
-  const $ = cheerio.load(html);
+const YAHOO_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  "Accept": "application/json",
+};
 
-  let $table = null;
-  $("table").each((_, table) => {
-    const headerText = $(table).find("thead").text();
-    if (/CMP/i.test(headerText)) {
-      $table = $(table);
-      return false;
-    }
-  });
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  if (!$table) {
-    $("table").each((_, table) => {
-      const firstRowText = $(table).find("tr").first().text();
-      if (/CMP/i.test(firstRowText)) {
-        $table = $(table);
-        return false;
-      }
-    });
-  }
+async function fetchYahooData(symbolWithSuffix) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbolWithSuffix}?range=1y&interval=1d`;
+  const res = await fetch(url, { headers: YAHOO_HEADERS });
+  if (!res.ok) throw new Error(`Yahoo fetch failed (${res.status})`);
+  const data = await res.json();
+  const result = data?.chart?.result?.[0];
+  if (!result) throw new Error("No chart data in response");
 
-  if (!$table) {
-    const tableCount = $("table").length;
-    const bodyLen = html.length;
-    const looksBlocked = /captcha|cloudflare|access denied|enable javascript/i.test(html);
-    const titleText = $("title").text();
-    throw new Error(
-      `Could not locate the results table. Diagnostics — tables found: ${tableCount}, ` +
-      `HTML length: ${bodyLen}, page title: "${titleText}", possible block page: ${looksBlocked}`
-    );
-  }
+  const closesRaw = result.indicators?.quote?.[0]?.close || [];
+  const closes = closesRaw.filter((c) => c !== null && c !== undefined);
+  if (closes.length < 200) throw new Error(`Only ${closes.length} days of history — need 200+`);
 
-  const headers = [];
-  let $headerCells = $table.find("thead th");
-  if (!$headerCells.length) $headerCells = $table.find("tr").first().find("th, td");
-  $headerCells.each((_, th) => headers.push($(th).text().trim().toLowerCase()));
+  const cmp = result.meta?.regularMarketPrice ?? closes[closes.length - 1];
+  const last50 = closes.slice(-50);
+  const last200 = closes.slice(-200);
+  const dma50 = last50.reduce((a, b) => a + b, 0) / last50.length;
+  const dma200 = last200.reduce((a, b) => a + b, 0) / last200.length;
 
-  const companyIdx = headers.findIndex((h) => h.includes("company"));
-  const cmpIdx = headers.findIndex((h) => h.includes("cmp"));
-  const dma200Idx = headers.findIndex((h) => h.includes("200 dma"));
-  const dma50Idx = headers.findIndex((h) => h.includes("50 dma"));
+  return { cmp, dma50, dma200 };
+}
 
-  if ([companyIdx, cmpIdx, dma200Idx, dma50Idx].includes(-1)) {
-    throw new Error(`Expected columns not found in headers: ${JSON.stringify(headers)}`);
-  }
-
+async function scanUniverse() {
   const rows = [];
-  let $bodyRows = $table.find("tbody tr");
-  if (!$bodyRows.length) $bodyRows = $table.find("tr").slice(1);
-  $bodyRows.each((_, tr) => {
-    const cells = $(tr).find("td");
-    if (!cells.length) return;
-
-    const name = $(cells[companyIdx]).text().trim();
-    const cmp = parseFloat($(cells[cmpIdx]).text().replace(/,/g, ""));
-    const dma200 = parseFloat($(cells[dma200Idx]).text().replace(/,/g, ""));
-    const dma50 = parseFloat($(cells[dma50Idx]).text().replace(/,/g, ""));
-
-    if (name && !isNaN(cmp) && !isNaN(dma50) && !isNaN(dma200)) {
-      rows.push({ name, cmp, dma50, dma200 });
+  for (const symbol of SYMBOLS) {
+    try {
+      const { cmp, dma50, dma200 } = await fetchYahooData(`${symbol}.NS`);
+      rows.push({ name: symbol, cmp, dma50, dma200 });
+    } catch (err) {
+      console.error(`Skipping ${symbol}: ${err.message}`);
     }
-  });
+    await sleep(200);
+  }
   return rows;
 }
 
@@ -105,7 +81,8 @@ function computeRow(s, cfg) {
 
   let status = "watch";
   if (flag) status = "flag";
-  else if (ext >= cfg.readyThreshold) status = "ready";
+  else if (s.cmp > s.dma50 && s.dma50 > s.dma200 && ext >= cfg.readyThreshold) status = "ready";
+  else if (s.cmp <= s.dma50 || s.dma50 <= s.dma200) status = "not-trending";
 
   return {
     ...s,
@@ -118,32 +95,6 @@ function computeRow(s, cfg) {
   };
 }
 
-async function fetchCurrentPrice(symbol) {
-  const url = `https://www.screener.in/company/${symbol}/consolidated/`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; TrendWatchlistBot/1.0)" },
-  });
-  if (!res.ok) throw new Error(`Price fetch failed for ${symbol}: ${res.status}`);
-  const html = await res.text();
-  const $ = cheerio.load(html);
-
-  let price = NaN;
-  $("li").each((_, li) => {
-    const $li = $(li);
-    if (/current price/i.test($li.text())) {
-      const numText = $li.find(".number").first().text().replace(/,/g, "").trim();
-      const parsed = parseFloat(numText);
-      if (!isNaN(parsed)) {
-        price = parsed;
-        return false;
-      }
-    }
-  });
-
-  if (isNaN(price)) throw new Error(`Could not parse Current Price for ${symbol} — page structure may have changed.`);
-  return price;
-}
-
 async function checkPositions() {
   const snap = await db.collection("positions").where("status", "==", "open").get();
   const updates = [];
@@ -151,7 +102,7 @@ async function checkPositions() {
   for (const docSnap of snap.docs) {
     const pos = docSnap.data();
     try {
-      const currentPrice = await fetchCurrentPrice(pos.symbol);
+      const { cmp: currentPrice } = await fetchYahooData(`${pos.symbol}.NS`);
       const pnlPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
       let action = "HOLD";
       if (currentPrice <= pos.stopPrice) action = "EXIT NOW";
@@ -165,8 +116,9 @@ async function checkPositions() {
       });
       updates.push({ symbol: pos.symbol, action, pnlPct: pnlPct.toFixed(2) });
     } catch (err) {
-      console.error(`Position check failed for ${pos.symbol}:`, err.message);
+      console.error(`Position check failed for ${pos.symbol}: ${err.message}`);
     }
+    await sleep(200);
   }
   return updates;
 }
@@ -175,7 +127,7 @@ async function run() {
   const configSnap = await db.doc("config/settings").get();
   const cfg = configSnap.exists ? { ...DEFAULTS, ...configSnap.data() } : DEFAULTS;
 
-  const raw = await scrapeScreener();
+  const raw = await scanUniverse();
   const rows = raw.map((s) => computeRow(s, cfg));
 
   await db.doc("watchlist/latest").set({
@@ -186,7 +138,7 @@ async function run() {
 
   const positionUpdates = await checkPositions();
 
-  console.log(`Scan complete. ${rows.length} stocks scanned, ${rows.filter(r => r.status === "ready").length} ready.`);
+  console.log(`Scan complete. ${rows.length}/${SYMBOLS.length} symbols scanned, ${rows.filter(r => r.status === "ready").length} ready.`);
   console.log(`Positions checked: ${positionUpdates.length}`, positionUpdates);
 }
 
